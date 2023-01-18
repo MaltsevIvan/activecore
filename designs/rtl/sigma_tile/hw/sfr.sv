@@ -8,7 +8,7 @@
 
 
 `include "sigma_tile.svh"
-
+`define LOGGER_LEN 63
 module sfr
 #(
 	parameter corenum=0
@@ -20,7 +20,7 @@ module sfr
 	, input [0:0] rst_i
 
 	, MemSplit32.Slave host
-
+    , MemSplit32.Monitor monitor
 	, input sw_reset_enb_i
     , input sw_reset_set_i
     , input sw_reset_autoclr_i
@@ -45,11 +45,26 @@ localparam TIMER_PERIOD_ADDR 	= 8'h24;
 localparam TIMER_VALUE_ADDR 	= 8'h28;
 
 logic sw_reset, sw_reset_autoclr;
+
+//Logger
+localparam START_LOGGER_ADDR        = 8'h32;
+localparam STOP_LOGGER_ADDR         = 8'h34;
+//localparam LOGGER_BUFFER_ADDR       = 8'h38;
+//localparam LOGGER_BUFFER_DATA_ADDR  = 8'h00;
+
+
 always @(posedge clk_i) core_reset_o <= rst_i | sw_reset;
 
 logic timer_inprogress, timer_reload;
 logic [31:0] timer_period;
 logic [31:0] timer_value, timer_value_inc;
+
+logic [31:0] logger_data_buffer [0:`LOGGER_LEN], logger_addr_buffer [0: `LOGGER_LEN];
+logic logger_inprogress = 1'b0;
+logic logger_count = 32'd0;
+
+integer i;
+
 assign timer_value_inc = timer_value + 1;
 
 always @(posedge clk_i)
@@ -67,12 +82,27 @@ always @(posedge clk_i)
 		timer_reload <= 1'b0;
 		timer_period <= 0;
 		timer_value <= 0;
+		
+		//logger
+		logger_inprogress <=  1'b0;
+		logger_count <= 0;
+		for(i = 0; i < `LOGGER_LEN + 1; i = i + 1)begin: forloop
+            logger_data_buffer[i] <= 0;
+            logger_addr_buffer[i] <= 0;
+        end
+		
 		end
 	else
 		begin
 		host.resp <= 1'b0;
 		sgi_req_o <= 0;
 		irq_timer <= 1'b0;
+        // Logger
+        if (logger_inprogress) begin
+            if (logger_count >= `LOGGER_LEN) logger_count = 0;
+            logger_addr_buffer[logger_count] <= monitor.addr[7:0];
+            logger_data_buffer[logger_count] <= monitor.wdata;
+            end
 
 		if (sw_reset_enb_i)
 			begin
@@ -90,7 +120,7 @@ always @(posedge clk_i)
 			timer_period <= 0;
 			timer_value <= 0;
 			end
-
+        
 		if (timer_inprogress)
 			begin
 			if (timer_value_inc == timer_period)
@@ -100,12 +130,21 @@ always @(posedge clk_i)
 				timer_value <= 0;
 				end
 			else timer_value <= timer_value_inc;
-			end
-
+			end            
 		if (host.req)
 			begin
 			if (host.we)
 				begin
+				//logger
+				if (host.addr[7:0] == START_LOGGER_ADDR)
+					begin
+					logger_inprogress <= 1;
+					end
+				if (host.addr[7:0] == STOP_LOGGER_ADDR)
+					begin
+					logger_inprogress <= 0;
+					end
+				//logger end
 				if (host.addr[7:0] == CTRL_ADDR)
 					begin
 					sw_reset <= host.wdata[0];

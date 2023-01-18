@@ -647,7 +647,7 @@ module sigma_tile
         , .rst_i	(rst_i)
 
         , .host(sfr_if)
-
+        , .monitor(cpu_data)
         , .sw_reset_enb_i(sw_reset_enb_i)
         , .sw_reset_set_i(sw_reset_set_i)
         , .sw_reset_autoclr_i(sw_reset_autoclr_i)
